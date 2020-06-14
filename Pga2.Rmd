@@ -1,0 +1,215 @@
+---
+title: "Peer_corrected assessment_2"
+author: "R Mofidi"
+date: "11/06/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Assessment of the economic impact of 60 years of severe weather events in the United States
+
+## Introduction
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities effected by these events. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+##Data
+##National Weather Service Storm Database
+National Climatic Data Center Storm Events database records the information collected on all the severe weather events in the United States from the year 1950. This copy of the database ends at end of November 2011. In the earlier years of the database there are fewer events recorded. This is likely to be due to a lack of good records. More recent years should be considered more complete as entered by NOAA's National Weather Service (NWS). Due to changes in the data collection and processing procedures over time according to the NWS's website there are unique periods of record available depending on the event type. The following timelines show the different time spans for each period of unique data collection and processing procedures:
+
+From 1950 through 1954, only tornado events were recorded.
+From 1955 through 1995, only tornado, thunderstorm wind and hail events were keyed from the paper publications into digital data. 
+Since 1996 the number of event types have increased to 48 (as per NWS directive 10-1605). 
+This will cause some bias in data and may result in mistaken belief that such events have suddenly increased at these cutoff points in time. Also it is unclear from the documentation whether the economic costs are calculated using the "time value of money". This is important as  there is a significant difference between 1950 US$ and 2011 US$. 
+
+The data for this assignment comes in the form of a comma-separated-value file compressed via the bzip2 algorithm to reduce its size. You can download the file from the following source: https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2
+A bz2 zip file can be read using the 'read.csv()' function without the need for a separate unzipping section. 
+
+Further reading can be obtained from: "https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf"
+
+## Aims
+
+The aim of this study are to address the following questions:
+1- which types of events are most harmful with respect to population health?
+2- which types of events have the greatest economic consequences?
+
+## Methods
+
+### load the appropriate packages needed for data analysis
+The following R packages are used for data analysis 
+```{r}
+library(dplyr)
+library(knitr)
+library(lubridate)
+library(ggplot2)
+library(data.table)
+library(stringr)
+```
+
+### Downloading the dataset 
+This step involves downloading the National Weather Service Storm Database from the link provided. as it is compressed via the bzip2 algorithm to reduce its size, it needs to be 
+unzipped. The uncompressed file is a cvs file called repdata_data_StormData.csv read into a file called storm_data. The following R code performs this task:
+
+```{r}
+if(!file.exists("~/data1")){dir.create("~/data1")}
+fileUrl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+download.file(fileUrl,destfile="~/data1/repdata_data_StormData.csv.bz2")
+setwd("~/data1")
+
+stormData <- read.csv('repdata_data_StormData.csv.bz2', header = TRUE, sep = ",")
+head(stormData)
+```
+
+### Preprocessing the data elements and data visualization
+
+```{r}
+stormData$annual <- as.numeric (format(as.Date(stormData$BGN_DATE, format = "%m/%d/%Y %H:%M:%S"),"%Y"))
+```
+
+### Preprocessing 
+The data in the database requires siginificant processing this includes:
+Standardising the EVTYPE events and removing whitespaces: 
+```{r}
+stormData$EVTYPE <- str_trim(stormData$EVTYPE)
+stormData$EVTYPE <- toupper(stormData$EVTYPE)
+```
+
+The whole dataset is very large so Reducing the dataset to the data you need would be efficient. It also sums up the fatalilties and injuries caused by each weather event and lists them under Events_harm2: 
+
+```{r}
+Analysis_data<-select(stormData, EVTYPE, FATALITIES,INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+head(Analysis_data)
+#make sure Events are set as character and fatalities and injuries are st as integers.#
+Events<- as.character(Analysis_data$EVTYPE)
+FATALITIES<-as.integer(Analysis_data$FATALITIES)
+INJURIES<- as.integer(Analysis_data$INJURIES)
+Events_harm<- aggregate(FATALITIES + INJURIES ~ EVTYPE, data=Analysis_data, sum, na.rm=TRUE)
+names(Events_harm)[2]<-"total"
+Events_harm2<- Events_harm[order(-Events_harm$total),]
+fatal_EVT <- summarise(group_by(Analysis_data, EVTYPE), fatalities = sum(FATALITIES))
+top10fatal <- head(arrange(fatal_EVT, desc(fatalities)), n = 10)
+injuries_EVT <- summarise(group_by(Analysis_data, EVTYPE), injuries = sum(INJURIES))
+ Injuries<- injuries_EVT[order(-injuries_EVT$injuries), ]
+Injuriestop10<- head(arrange(injuries_EVT, desc(injuries)), n=10)
+```
+
+
+The last data preprocessing event is to calculate the economic impact of each weather event by combining the property damage and crop damage enteries. For some reason these values have multipliers for each observtion. These multipliers are Hundred (H), Thousand (K), Million (M) and Billion (B).This is the code for converting these values to their numeric values so the comparisons could be performed: 
+
+```{r}
+Analysis_data$PROPDMGEXP<- as.character(Analysis_data$PROPDMGEXP)
+Analysis_data<- mutate(Analysis_data, PROPDMGEXP = ifelse (PROPDMGEXP == "B",9, 
+                  ifelse (PROPDMGEXP %in% c("M","m"),6,
+                           ifelse (PROPDMGEXP %in% c("K","k"), 3, 
+                                   ifelse (PROPDMGEXP %in% c("H", "h"), 2,
+                                        ifelse(PROPDMGEXP %in% c("+","?","-"),0,
+                                          ifelse(PROPDMGEXP == "",1,
+                                                 PROPDMGEXP)))))))
+
+Analysis_data$PROPDMGEXP<- as.numeric(Analysis_data$PROPDMGEXP)
+Analysis_data$PROPDMG1<- Analysis_data$PROPDMG*10^Analysis_data$PROPDMGEXP
+
+Analysis_data$CROPDMGEXP<- as.character(Analysis_data$CROPDMGEXP)
+Analysis_data<- mutate(Analysis_data, CROPDMGEXP = ifelse (CROPDMGEXP == "B",9, 
+                  ifelse (CROPDMGEXP %in% c("M","m"),6,
+                           ifelse (CROPDMGEXP %in% c("K","k"), 3, 
+                                   ifelse (CROPDMGEXP %in% c("H", "h"), 2,
+                                        ifelse(CROPDMGEXP %in% c("+","?","-", "Inf"),0,
+                                          ifelse(CROPDMGEXP == "",1,
+                                                 CROPDMGEXP)))))))
+Analysis_data$CROPDMGEXP<- as.numeric(Analysis_data$CROPDMGEXP)
+Analysis_data$CROPDMG1<- Analysis_data$CROPDMG*10^Analysis_data$CROPDMGEXP
+Analysis_data$DMG<- Analysis_data$PROPDMG1 + Analysis_data$CROPDMG1
+
+propDamg <- summarise(group_by(Analysis_data, EVTYPE), PROPDAM = sum(PROPDMG1))
+top10PropDamg <- head(arrange(propDamg, desc(PROPDAM)), n = 10)
+cropDamg <- summarise(group_by(Analysis_data, EVTYPE), cropDAMG = sum(CROPDMG1))
+top10CropDamg<- head(arrange(cropDamg, desc(cropDAMG)), n=10)
+```
+
+## Results
+
+The following histogram illustrates the annualized frequency of (recorded) severe weather events between the years 1950 and 2011: 
+```{r}
+stormData$annual <- as.numeric (format(as.Date(stormData$BGN_DATE, format = "%m/%d/%Y %H:%M:%S"),"%Y"))
+hist(stormData$annual, breaks = 60, main="Frequency of Extreme weather Events per year", ylab = "Year")
+```
+
+As you can see the following the introduction of the NWS directive 10-1605 in 1995 there has been a significant increase iin the yearly frequency of extreme weather events and that makes sense as many more up to 48 types of weather events are recorded. Althrough there is underlying trend of gradually increasing frequency of recorded events. 
+
+### Impact of severe weather events oh human health in the united States
+
+The following list are the top 10 events which have had the largest impact on human health (i.e. causing death or severe injuries):
+
+```{r}
+head(Events_harm2, 10)
+```
+
+The following 2 tables list the events the top 10 events responsible for fatalities and injuries: 
+
+#### Fatalities
+```{r}
+print(top10fatal)
+```
+
+#### Injuries
+```{r}
+head(Injuries, 10)
+```
+This is the graphical representation of the above findings: 
+```{r}
+library(cowplot)
+
+fatalitiesPlot <- ggplot(top10fatal, aes(x = reorder(EVTYPE,-fatalities), y = fatalities)) + geom_bar(stat = "identity", fill = "blue") +
+  theme(axis.text.x = element_text(angle = 35,hjust = 1, size = 8)) +
+    xlab("Event Type") + ylab("Number of Fatalities") + 
+    ggtitle("Top 10 Severe Weather Events\n causing Fatalities in US\n from 1995 to 2011")
+InjuriesPlot <- ggplot(Injuriestop10, aes(x = reorder(EVTYPE,-injuries), y = injuries)) + geom_bar(stat = "identity", fill = "blue") +
+  theme(axis.text.x = element_text(angle = 35,hjust = 1, size = 8)) +
+    xlab("Event Type") + ylab("Number of Injuries") + 
+    ggtitle("Top 10 Severe Weather Events\n causing Injuries from 1995 to 2011")
+cowplot::plot_grid(fatalitiesPlot, InjuriesPlot, align = "v")
+```
+
+*Figure-2: illustrates the human impact of advese weather events.*
+
+
+#### Economic impact of adverse weather events
+The economic impact of adverse weather events between 1950 and 2011 has been considerable the total economic impact of adverse weather events (as recorded in the National Weather Service Storm Database) in the Unites States was US$ 477,329,065,794 of which US$ 428,224,873,514 was property damage and US$ 49,104,192,280 was damage to crops. 
+
+```{r}
+#total economic impact
+sum(Analysis_data$DMG)
+#Property damage
+sum(Analysis_data$PROPDMG1)
+#Crop damage
+sum(Analysis_data$CROPDMG1)
+```
+
+The following is a list of the top 10 causes of property damage as recorded by the National Weather Service Storm Database:
+```{r}
+print(top10PropDamg)
+```
+
+```{r}
+print(top10CropDamg)
+```
+
+This is the graphical representation of the above findings: 
+
+
+```{r}
+library(cowplot)
+
+PROPDMGPlot <- ggplot(top10PropDamg, aes(x = reorder(EVTYPE,-PROPDAM), y = PROPDAM)) + geom_bar(stat = "identity", fill = "blue") +
+  theme(axis.text.x = element_text(angle = 35,hjust = 1, size = 8)) +
+    xlab("Event Type") + ylab("Property damage (US$)") + 
+    ggtitle("Top 10 Severe Weather Events causing property damage in the US")
+CROPDMGPlot <- ggplot(top10CropDamg, aes(x = reorder(EVTYPE,-cropDAMG), y = cropDAMG)) + geom_bar(stat = "identity", fill = "blue") +
+  theme(axis.text.x = element_text(angle = 35,hjust = 1, size = 8)) +
+    xlab("Event Type") + ylab("Crop damage (US$)") + 
+    ggtitle("Top 10 Severe Weather Events causing property damage in the US")
+cowplot::plot_grid(PROPDMGPlot, CROPDMGPlot, align = "v")
+```
